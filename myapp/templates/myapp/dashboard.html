@@ -1,0 +1,262 @@
+{% extends 'myapp/base.html' %}
+
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Dashboard Overview -->
+<div id="dashboard-section" class="page-section">
+    <div class="stats-grid" id="stats-grid">
+        <div class="stat-card info">
+            <div class="stat-number" id="total-alerts">0</div>
+            <div class="stat-label">Total Alerts</div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-number" id="active-alerts">0</div>
+            <div class="stat-label">Active Alerts</div>
+        </div>
+        <div class="stat-card warning">
+            <div class="stat-number" id="read-alerts">0</div>
+            <div class="stat-label">Read Alerts</div>
+        </div>
+        <div class="stat-card critical">
+            <div class="stat-number" id="snoozed-alerts">0</div>
+            <div class="stat-label">Snoozed Alerts</div>
+        </div>
+    </div>
+    
+    <div class="content-section">
+        <h2>Recent Alerts</h2>
+        <div id="recent-alerts"></div>
+    </div>
+</div>
+
+<!-- Active Alerts Section -->
+<div id="alerts-section" class="page-section" style="display: none;">
+    <div class="content-section">
+        <h2>Active Alerts</h2>
+        <div id="alerts-list"></div>
+    </div>
+</div>
+
+{% if user.is_admin %}
+<!-- Create Alert Section -->
+<div id="create-section" class="page-section" style="display: none;">
+    <div class="content-section">
+        <h2>Create New Alert</h2>
+        <form id="alert-form">
+            <div class="form-group">
+                <label>Alert Title</label>
+                <input type="text" id="title" placeholder="Enter alert title" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Message</label>
+                <textarea id="message" placeholder="Enter alert message" class="form-control" rows="4" required></textarea>
+            </div>
+            <div class="form-group">
+                <label>Severity Level</label>
+                <select id="severity" class="form-control">
+                    <option value="info">ℹ️ Info</option>
+                    <option value="warning">⚠️ Warning</option>
+                    <option value="critical">🚨 Critical</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Visibility</label>
+                <select id="visibility_type" class="form-control">
+                    <option value="organization">🏢 Organization Wide</option>
+                    <option value="team">👥 Team Only</option>
+                    <option value="user">👤 Specific Users</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Expiry Time</label>
+                <input type="datetime-local" id="expiry_time" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Create Alert</button>
+        </form>
+    </div>
+</div>
+
+<!-- Analytics Section -->
+<div id="analytics-section" class="page-section" style="display: none;">
+    <div class="stats-grid" id="analytics-stats">
+        <div class="stat-card info">
+            <div class="stat-number" id="analytics-total">0</div>
+            <div class="stat-label">Total Created</div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-number" id="analytics-delivered">0</div>
+            <div class="stat-label">Delivered</div>
+        </div>
+        <div class="stat-card warning">
+            <div class="stat-number" id="analytics-read">0</div>
+            <div class="stat-label">Read</div>
+        </div>
+        <div class="stat-card critical">
+            <div class="stat-number" id="analytics-snoozed">0</div>
+            <div class="stat-label">Snoozed</div>
+        </div>
+    </div>
+    
+    <div class="content-section">
+        <h2>Severity Breakdown</h2>
+        <div id="severity-breakdown"></div>
+    </div>
+    
+    <div class="content-section">
+        <h2>System Actions</h2>
+        <button onclick="triggerReminders()" class="btn btn-success">Send Reminders</button>
+    </div>
+</div>
+{% endif %}
+
+<script>
+// Load dashboard data
+async function loadDashboard() {
+    try {
+        const [alerts, stats] = await Promise.all([
+            apiCall('/user-alerts/'),
+            apiCall('/dashboard-stats/')
+        ]);
+        
+        // Update stats
+        document.getElementById('total-alerts').textContent = stats.total_alerts;
+        document.getElementById('active-alerts').textContent = alerts.length;
+        document.getElementById('read-alerts').textContent = stats.read_count;
+        document.getElementById('snoozed-alerts').textContent = stats.snoozed_count;
+        
+        // Show recent alerts
+        const recentContainer = document.getElementById('recent-alerts');
+        const recentAlerts = alerts.slice(0, 5);
+        
+        if (recentAlerts.length === 0) {
+            recentContainer.innerHTML = '<p>No active alerts</p>';
+        } else {
+            recentContainer.innerHTML = recentAlerts.map(alert => `
+                <div class="alert ${alert.severity}" data-id="${alert.id}">
+                    <h3>${alert.title}</h3>
+                    <p>${alert.message}</p>
+                    <small>Severity: ${alert.severity} | Expires: ${new Date(alert.expiry_time).toLocaleString()}</small>
+                </div>
+            `).join('');
+        }
+    } catch (error) {
+        console.error('Error loading dashboard:', error);
+    }
+}
+
+async function loadAlerts() {
+    try {
+        const alerts = await apiCall('/user-alerts/');
+        const container = document.getElementById('alerts-list');
+        
+        if (alerts.length === 0) {
+            container.innerHTML = '<p>No active alerts</p>';
+            return;
+        }
+        
+        container.innerHTML = alerts.map(alert => `
+            <div class="alert ${alert.severity}" data-id="${alert.id}">
+                <h3>${alert.title}</h3>
+                <p>${alert.message}</p>
+                <small>Severity: ${alert.severity} | Expires: ${new Date(alert.expiry_time).toLocaleString()}</small>
+                <div style="margin-top: 10px;">
+                    ${!alert.is_read ? `<button onclick="markRead(${alert.id})" class="btn btn-secondary">Mark Read</button>` : '<span class="btn btn-success">✓ Read</span>'}
+                    ${!alert.is_snoozed ? `<button onclick="snoozeAlert(${alert.id})" class="btn btn-secondary">Snooze</button>` : '<span class="btn btn-warning">😴 Snoozed</span>'}
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading alerts:', error);
+    }
+}
+
+async function loadAnalytics() {
+    {% if user.is_admin %}
+    try {
+        const analytics = await apiCall('/analytics/');
+        
+        document.getElementById('analytics-total').textContent = analytics.total_alerts;
+        document.getElementById('analytics-delivered').textContent = analytics.delivered_count;
+        document.getElementById('analytics-read').textContent = analytics.read_count;
+        document.getElementById('analytics-snoozed').textContent = analytics.snoozed_count;
+        
+        // Severity breakdown
+        const breakdownContainer = document.getElementById('severity-breakdown');
+        if (analytics.severity_breakdown && analytics.severity_breakdown.length > 0) {
+            breakdownContainer.innerHTML = analytics.severity_breakdown.map(item => `
+                <div class="alert ${item.severity}" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>${item.severity.toUpperCase()}</span>
+                    <span class="stat-number" style="font-size: 1.2em;">${item.count}</span>
+                </div>
+            `).join('');
+        } else {
+            breakdownContainer.innerHTML = '<p>No data available</p>';
+        }
+    } catch (error) {
+        console.error('Error loading analytics:', error);
+    }
+    {% endif %}
+}
+
+async function markRead(alertId) {
+    try {
+        await apiCall(`/alerts/${alertId}/mark_read/`, { method: 'POST' });
+        loadAlerts();
+        loadDashboard();
+    } catch (error) {
+        console.error('Error marking alert as read:', error);
+    }
+}
+
+async function snoozeAlert(alertId) {
+    try {
+        await apiCall(`/alerts/${alertId}/snooze/`, { method: 'POST' });
+        loadAlerts();
+        loadDashboard();
+    } catch (error) {
+        console.error('Error snoozing alert:', error);
+    }
+}
+
+{% if user.is_admin %}
+async function triggerReminders() {
+    try {
+        await apiCall('/trigger-reminders/', { method: 'POST' });
+        alert('Reminders sent successfully!');
+    } catch (error) {
+        console.error('Error triggering reminders:', error);
+        alert('Error sending reminders');
+    }
+}
+
+document.getElementById('alert-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = {
+        title: document.getElementById('title').value,
+        message: document.getElementById('message').value,
+        severity: document.getElementById('severity').value,
+        visibility_type: document.getElementById('visibility_type').value,
+        expiry_time: document.getElementById('expiry_time').value
+    };
+    
+    try {
+        await apiCall('/alerts/', {
+            method: 'POST',
+            body: JSON.stringify(formData)
+        });
+        document.getElementById('alert-form').reset();
+        alert('Alert created successfully!');
+        loadDashboard();
+    } catch (error) {
+        console.error('Error creating alert:', error);
+        alert('Error creating alert');
+    }
+});
+{% endif %}
+
+// Load dashboard on page load
+loadDashboard();
+</script>
+{% endblock %}

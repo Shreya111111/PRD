@@ -1,0 +1,563 @@
+{% extends 'myapp/base.html' %}
+
+{% block page_title %}Admin Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+.admin-nav {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 10px;
+}
+
+.nav-btn {
+    padding: 10px 20px;
+    border: none;
+    background: #f8f9fa;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+.nav-btn.active {
+    background: #007bff;
+    color: white;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    color: white;
+}
+
+.stat-card.info { background: #17a2b8; }
+.stat-card.success { background: #28a745; }
+.stat-card.warning { background: #ffc107; color: #212529; }
+.stat-card.critical { background: #dc3545; }
+
+.stat-number {
+    font-size: 2em;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.content-section {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-control {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.btn-primary { background: #007bff; color: white; }
+.btn-secondary { background: #6c757d; color: white; }
+.btn-success { background: #28a745; color: white; }
+.btn-danger { background: #dc3545; color: white; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+
+.alert-item {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    background: white;
+}
+
+.alert-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.alert-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.alert-meta {
+    display: flex;
+    gap: 15px;
+    font-size: 12px;
+    color: #666;
+    margin-top: 10px;
+}
+
+.severity-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.severity-badge.info { background: #d1ecf1; color: #0c5460; }
+.severity-badge.warning { background: #fff3cd; color: #856404; }
+.severity-badge.critical { background: #f8d7da; color: #721c24; }
+
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 15px 20px;
+    border-radius: 5px;
+    color: white;
+    z-index: 1000;
+}
+
+.notification.success { background: #28a745; }
+.notification.error { background: #dc3545; }
+.notification.info { background: #17a2b8; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Navigation Tabs -->
+<div class="admin-nav">
+    <button class="nav-btn active" onclick="showSection('admin-overview')">Overview</button>
+    <button class="nav-btn" onclick="showSection('create-alert')">Create Alert</button>
+    <button class="nav-btn" onclick="showSection('manage-alerts')">Manage Alerts</button>
+    <button class="nav-btn" onclick="showSection('admin-analytics')">Analytics</button>
+</div>
+
+<!-- Admin Overview -->
+<div id="admin-overview" class="page-section">
+    <div class="stats-grid">
+        <div class="stat-card info">
+            <div class="stat-number" id="admin-total-alerts">0</div>
+            <div class="stat-label">Total Alerts Created</div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-number" id="admin-active-alerts">0</div>
+            <div class="stat-label">Active Alerts</div>
+        </div>
+        <div class="stat-card warning">
+            <div class="stat-number" id="admin-delivered">0</div>
+            <div class="stat-label">Total Delivered</div>
+        </div>
+        <div class="stat-card critical">
+            <div class="stat-number" id="admin-read-rate">0%</div>
+            <div class="stat-label">Read Rate</div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Alert Section -->
+<div id="create-alert" class="page-section" style="display: none;">
+    <div class="content-section">
+        <h2>Create New Alert</h2>
+        <form id="admin-alert-form">
+            {% csrf_token %}
+            <div class="form-group">
+                <label>Alert Title *</label>
+                <input type="text" id="admin-title" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Message Body *</label>
+                <textarea id="admin-message" class="form-control" rows="4" required></textarea>
+            </div>
+            <div class="form-group">
+                <label>Severity Level *</label>
+                <select id="admin-severity" class="form-control">
+                    <option value="info">ℹ️ Info</option>
+                    <option value="warning">⚠️ Warning</option>
+                    <option value="critical">🚨 Critical</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Delivery Type</label>
+                <select id="admin-delivery" class="form-control">
+                    <option value="in_app">📱 In-App</option>
+                    <option value="email" disabled>📧 Email (Coming Soon)</option>
+                    <option value="sms" disabled>📱 SMS (Coming Soon)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Visibility *</label>
+                <select id="admin-visibility" class="form-control" onchange="toggleTargetFields()">
+                    <option value="organization">🏢 Entire Organization</option>
+                    <option value="team">👥 Specific Teams</option>
+                    <option value="user">👤 Specific Users</option>
+                </select>
+            </div>
+            <div id="team-selector" class="form-group" style="display: none;">
+                <label>Select Teams</label>
+                <select id="admin-teams" class="form-control" multiple>
+                    <!-- Teams loaded dynamically -->
+                </select>
+            </div>
+            <div id="user-selector" class="form-group" style="display: none;">
+                <label>Select Users</label>
+                <select id="admin-users" class="form-control" multiple>
+                    <!-- Users loaded dynamically -->
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Start Time</label>
+                <input type="datetime-local" id="admin-start-time" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Expiry Time *</label>
+                <input type="datetime-local" id="admin-expiry-time" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Reminder Frequency (hours)</label>
+                <input type="number" id="admin-reminder-freq" class="form-control" value="2" min="1" max="24">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="admin-reminders-enabled" checked>
+                    Enable Reminders
+                </label>
+            </div>
+            <button type="submit" class="btn btn-primary">Create Alert</button>
+        </form>
+    </div>
+</div>
+
+<!-- Manage Alerts Section -->
+<div id="manage-alerts" class="page-section" style="display: none;">
+    <div class="content-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2>Manage Alerts</h2>
+            <div>
+                <select id="filter-severity" class="form-control" style="display: inline-block; width: auto; margin-right: 10px;">
+                    <option value="">All Severities</option>
+                    <option value="info">Info</option>
+                    <option value="warning">Warning</option>
+                    <option value="critical">Critical</option>
+                </select>
+                <select id="filter-status" class="form-control" style="display: inline-block; width: auto;">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="expired">Expired</option>
+                </select>
+            </div>
+        </div>
+        <div id="alerts-list">
+            <!-- Alerts loaded dynamically -->
+        </div>
+    </div>
+</div>
+
+<!-- Analytics Section -->
+<div id="admin-analytics" class="page-section" style="display: none;">
+    <div class="content-section">
+        <h2>Analytics Overview</h2>
+        <div class="stats-grid">
+            <div class="stat-card info">
+                <div class="stat-number" id="analytics-total">0</div>
+                <div class="stat-label">Total Alerts</div>
+            </div>
+            <div class="stat-card success">
+                <div class="stat-number" id="analytics-delivered">0</div>
+                <div class="stat-label">Delivered</div>
+            </div>
+            <div class="stat-card warning">
+                <div class="stat-number" id="analytics-read">0</div>
+                <div class="stat-label">Read</div>
+            </div>
+            <div class="stat-card critical">
+                <div class="stat-number" id="analytics-snoozed">0</div>
+                <div class="stat-label">Snoozed</div>
+            </div>
+        </div>
+        
+        <div class="content-section">
+            <button class="btn btn-primary" onclick="triggerReminders()">Send Pending Reminders</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentSection = 'admin-overview';
+let allAlerts = [];
+let currentEditingAlert = null;
+
+// Navigation
+function showSection(sectionId) {
+    document.querySelectorAll('.page-section').forEach(s => s.style.display = 'none');
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    
+    document.getElementById(sectionId).style.display = 'block';
+    event.target.classList.add('active');
+    currentSection = sectionId;
+    
+    if (sectionId === 'admin-overview') loadOverviewStats();
+    if (sectionId === 'manage-alerts') loadAlerts();
+    if (sectionId === 'admin-analytics') loadAnalytics();
+}
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadOverviewStats();
+    loadTeamsAndUsers();
+});
+
+// Overview Stats
+function loadOverviewStats() {
+    fetch('/api/analytics/')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('admin-total-alerts').textContent = data.total_alerts;
+            document.getElementById('admin-active-alerts').textContent = data.active_alerts;
+            document.getElementById('admin-delivered').textContent = data.delivered_count;
+            const readRate = data.delivered_count > 0 ? Math.round((data.read_count / data.delivered_count) * 100) : 0;
+            document.getElementById('admin-read-rate').textContent = readRate + '%';
+        })
+        .catch(error => showNotification('Error loading stats', 'error'));
+}
+
+// Load teams and users for dropdowns
+function loadTeamsAndUsers() {
+    fetch('/api/teams/')
+        .then(response => response.json())
+        .then(data => {
+            const teamSelect = document.getElementById('admin-teams');
+            teamSelect.innerHTML = data.map(team => 
+                `<option value="${team.id}">${team.name}</option>`
+            ).join('');
+        })
+        .catch(error => console.error('Error loading teams:', error));
+    
+    fetch('/api/users/')
+        .then(response => response.json())
+        .then(data => {
+            const userSelect = document.getElementById('admin-users');
+            userSelect.innerHTML = data.map(user => {
+                const displayName = user.first_name && user.last_name 
+                    ? `${user.first_name} ${user.last_name} (${user.username})`
+                    : user.username;
+                return `<option value="${user.id}">${displayName}</option>`;
+            }).join('');
+        })
+        .catch(error => console.error('Error loading users:', error));
+}
+
+// Toggle target fields based on visibility selection
+function toggleTargetFields() {
+    const visibility = document.getElementById('admin-visibility').value;
+    const teamSelector = document.getElementById('team-selector');
+    const userSelector = document.getElementById('user-selector');
+    
+    teamSelector.style.display = visibility === 'team' ? 'block' : 'none';
+    userSelector.style.display = visibility === 'user' ? 'block' : 'none';
+}
+
+// Create/Update Alert Form
+document.getElementById('admin-alert-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = {
+        title: document.getElementById('admin-title').value,
+        message: document.getElementById('admin-message').value,
+        severity: document.getElementById('admin-severity').value,
+        delivery_type: document.getElementById('admin-delivery').value,
+        visibility_type: document.getElementById('admin-visibility').value,
+        start_time: document.getElementById('admin-start-time').value || new Date().toISOString(),
+        expiry_time: document.getElementById('admin-expiry-time').value,
+        reminder_frequency: parseInt(document.getElementById('admin-reminder-freq').value),
+        reminders_enabled: document.getElementById('admin-reminders-enabled').checked
+    };
+    
+    if (formData.visibility_type === 'team') {
+        const selectedTeams = Array.from(document.getElementById('admin-teams').selectedOptions).map(o => o.value);
+        formData.target_teams = selectedTeams;
+    } else if (formData.visibility_type === 'user') {
+        const selectedUsers = Array.from(document.getElementById('admin-users').selectedOptions).map(o => o.value);
+        formData.target_users = selectedUsers;
+    }
+    
+    const url = currentEditingAlert ? `/api/alerts/${currentEditingAlert}/` : '/api/alerts/';
+    const method = currentEditingAlert ? 'PUT' : 'POST';
+    
+    fetch(url, {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.id) {
+            showNotification(`Alert ${currentEditingAlert ? 'updated' : 'created'} successfully!`, 'success');
+            e.target.reset();
+            currentEditingAlert = null;
+            e.target.querySelector('button[type="submit"]').textContent = 'Create Alert';
+            toggleTargetFields();
+            if (currentSection === 'manage-alerts') loadAlerts();
+        } else {
+            showNotification(`Error ${currentEditingAlert ? 'updating' : 'creating'} alert`, 'error');
+        }
+    })
+    .catch(error => showNotification(`Error ${currentEditingAlert ? 'updating' : 'creating'} alert`, 'error'));
+});
+
+// Load and display alerts
+function loadAlerts() {
+    const severity = document.getElementById('filter-severity').value;
+    const status = document.getElementById('filter-status').value;
+    
+    let url = '/api/alerts/?';
+    if (severity) url += `severity=${severity}&`;
+    if (status) url += `status=${status}&`;
+    
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            allAlerts = data;
+            displayAlerts(data);
+        })
+        .catch(error => showNotification('Error loading alerts', 'error'));
+}
+
+// Display alerts in the manage section
+function displayAlerts(alerts) {
+    const container = document.getElementById('alerts-list');
+    
+    if (alerts.length === 0) {
+        container.innerHTML = '<p>No alerts found.</p>';
+        return;
+    }
+    
+    container.innerHTML = alerts.map(alert => `
+        <div class="alert-item">
+            <div class="alert-header">
+                <h4>${alert.title}</h4>
+                <div class="alert-actions">
+                    <span class="severity-badge ${alert.severity}">${alert.severity}</span>
+                    <button class="btn btn-sm btn-secondary" onclick="editAlert(${alert.id})">Edit</button>
+                    <button class="btn btn-sm btn-danger" onclick="archiveAlert(${alert.id})">Archive</button>
+                </div>
+            </div>
+            <p>${alert.message}</p>
+            <div class="alert-meta">
+                <span>📅 Created: ${new Date(alert.created_at).toLocaleDateString()}</span>
+                <span>⏰ Expires: ${new Date(alert.expiry_time).toLocaleDateString()}</span>
+                <span>👥 Audience: ${alert.visibility_type}</span>
+                <span>🔔 Reminders: ${alert.reminders_enabled ? 'On' : 'Off'}</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Edit alert
+function editAlert(alertId) {
+    const alert = allAlerts.find(a => a.id === alertId);
+    if (!alert) return;
+    
+    document.getElementById('admin-title').value = alert.title;
+    document.getElementById('admin-message').value = alert.message;
+    document.getElementById('admin-severity').value = alert.severity;
+    document.getElementById('admin-delivery').value = alert.delivery_type;
+    document.getElementById('admin-visibility').value = alert.visibility_type;
+    document.getElementById('admin-start-time').value = alert.start_time ? new Date(alert.start_time).toISOString().slice(0, 16) : '';
+    document.getElementById('admin-expiry-time').value = new Date(alert.expiry_time).toISOString().slice(0, 16);
+    document.getElementById('admin-reminder-freq').value = alert.reminder_frequency;
+    document.getElementById('admin-reminders-enabled').checked = alert.reminders_enabled;
+    
+    toggleTargetFields();
+    showSection('create-alert');
+    
+    const form = document.getElementById('admin-alert-form');
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.textContent = 'Update Alert';
+    currentEditingAlert = alertId;
+}
+
+// Archive alert
+function archiveAlert(alertId) {
+    if (!confirm('Are you sure you want to archive this alert?')) return;
+    
+    fetch(`/api/alerts/${alertId}/`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify({ is_active: false })
+    })
+    .then(response => response.json())
+    .then(data => {
+        showNotification('Alert archived successfully', 'success');
+        loadAlerts();
+    })
+    .catch(error => showNotification('Error archiving alert', 'error'));
+}
+
+// Load analytics
+function loadAnalytics() {
+    fetch('/api/analytics/')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('analytics-total').textContent = data.total_alerts;
+            document.getElementById('analytics-delivered').textContent = data.delivered_count;
+            document.getElementById('analytics-read').textContent = data.read_count;
+            document.getElementById('analytics-snoozed').textContent = data.snoozed_count;
+        })
+        .catch(error => showNotification('Error loading analytics', 'error'));
+}
+
+// Trigger reminders
+function triggerReminders() {
+    fetch('/api/trigger-reminders/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        showNotification('Reminders sent successfully!', 'success');
+    })
+    .catch(error => showNotification('Error sending reminders', 'error'));
+}
+
+// Filter event listeners
+document.getElementById('filter-severity').addEventListener('change', loadAlerts);
+document.getElementById('filter-status').addEventListener('change', loadAlerts);
+
+// Notification system
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
+</script>
+{% endblock %}

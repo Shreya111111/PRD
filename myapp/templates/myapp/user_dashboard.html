@@ -1,0 +1,341 @@
+{% extends 'myapp/base.html' %}
+
+{% block page_title %}User Dashboard{% endblock %}
+
+{% block content %}
+<!-- User Overview -->
+<div id="user-overview" class="page-section">
+    <div class="stats-grid">
+        <div class="stat-card info">
+            <div class="stat-number" id="user-total-alerts">0</div>
+            <div class="stat-label">Total Alerts</div>
+        </div>
+        <div class="stat-card warning">
+            <div class="stat-number" id="user-unread-alerts">0</div>
+            <div class="stat-label">Unread</div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-number" id="user-read-alerts">0</div>
+            <div class="stat-label">Read</div>
+        </div>
+        <div class="stat-card critical">
+            <div class="stat-number" id="user-snoozed-alerts">0</div>
+            <div class="stat-label">Snoozed</div>
+        </div>
+    </div>
+</div>
+
+<!-- Active Alerts -->
+<div id="active-alerts" class="page-section">
+    <div class="content-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2>Active Alerts</h2>
+            <button onclick="refreshAlerts()" class="btn btn-primary btn-sm">🔄 Refresh</button>
+        </div>
+        <div id="user-alerts-list"></div>
+    </div>
+</div>
+
+<!-- Alert History -->
+<div id="alert-history" class="page-section" style="display: none;">
+    <div class="content-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2>Alert History</h2>
+            <select id="history-filter" class="form-control" style="width: auto;" onchange="loadAlertHistory()">
+                <option value="">All Alerts</option>
+                <option value="read">Read Only</option>
+                <option value="unread">Unread Only</option>
+                <option value="snoozed">Snoozed Only</option>
+            </select>
+        </div>
+        <div id="user-history-list"></div>
+    </div>
+</div>
+
+<script>
+let alertCheckInterval;
+
+// Load user overview stats
+async function loadUserOverview() {
+    try {
+        const response = await fetch('/api/dashboard-stats/', {
+            headers: {
+                'Authorization': 'Bearer ' + localStorage.getItem('token') || '',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        const stats = await response.json();
+        
+        document.getElementById('user-total-alerts').textContent = stats.total_alerts || 0;
+        document.getElementById('user-read-alerts').textContent = stats.read_count || 0;
+        document.getElementById('user-snoozed-alerts').textContent = stats.snoozed_count || 0;
+        document.getElementById('user-unread-alerts').textContent = (stats.total_alerts - stats.read_count) || 0;
+    } catch (error) {
+        console.error('Error loading user overview:', error);
+    }
+}
+
+// Load active alerts
+async function loadActiveAlerts() {
+    try {
+        const response = await fetch('/api/user-alerts/', {
+            headers: {
+                'Authorization': 'Bearer ' + localStorage.getItem('token') || '',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        const alerts = await response.json();
+        const container = document.getElementById('user-alerts-list');
+        
+        if (!alerts || alerts.length === 0) {
+            container.innerHTML = '<div class="alert info"><p>No active alerts at this time.</p></div>';
+            return;
+        }
+        
+        container.innerHTML = alerts.map(alert => {
+            const createdDate = new Date(alert.created_at).toLocaleString();
+            const expiryDate = new Date(alert.expiry_time).toLocaleString();
+            const severityIcon = {
+                'info': 'ℹ️',
+                'warning': '⚠️', 
+                'critical': '🚨'
+            }[alert.severity] || 'ℹ️';
+            
+            return `
+                <div class="alert-item ${alert.severity} ${alert.is_read ? 'read' : 'unread'}" id="alert-${alert.id}">
+                    <div class="alert-header">
+                        <h4>${severityIcon} ${alert.title}</h4>
+                        <div class="alert-meta">
+                            <span class="alert-status ${alert.is_read ? 'read' : 'unread'}">
+                                ${alert.is_read ? '✓ Read' : '● Unread'}
+                            </span>
+                            ${alert.is_snoozed ? '<span class="alert-status snoozed">😴 Snoozed</span>' : ''}
+                        </div>
+                    </div>
+                    <p>${alert.message}</p>
+                    <div class="alert-meta">
+                        <span>📅 Created: ${createdDate}</span>
+                        <span>⏰ Expires: ${expiryDate}</span>
+                        <span>🎯 Visibility: ${alert.visibility_type}</span>
+                    </div>
+                    <div class="alert-actions">
+                        ${!alert.is_read ? 
+                            `<button onclick="markAsRead(${alert.id})" class="btn btn-sm btn-success">✓ Mark Read</button>` : 
+                            `<button onclick="markAsUnread(${alert.id})" class="btn btn-sm btn-secondary">↶ Mark Unread</button>`
+                        }
+                        ${!alert.is_snoozed ? 
+                            `<button onclick="snoozeAlert(${alert.id})" class="btn btn-sm btn-secondary">😴 Snooze for Day</button>` :
+                            `<button onclick="unsnoozeAlert(${alert.id})" class="btn btn-sm btn-primary">🔔 Unsnooze</button>`
+                        }
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading active alerts:', error);
+        document.getElementById('user-alerts-list').innerHTML = 
+            '<div class="alert critical"><p>Error loading alerts. Please refresh the page.</p></div>';
+    }
+}
+
+// Load alert history
+async function loadAlertHistory() {
+    try {
+        const filter = document.getElementById('history-filter').value;
+        let url = '/api/user-alerts/';
+        if (filter) {
+            url += `?filter=${filter}`;
+        }
+        
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': 'Bearer ' + localStorage.getItem('token') || '',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        const alerts = await response.json();
+        const container = document.getElementById('user-history-list');
+        
+        if (!alerts || alerts.length === 0) {
+            container.innerHTML = '<div class="alert info"><p>No alerts found for the selected filter.</p></div>';
+            return;
+        }
+        
+        container.innerHTML = alerts.map(alert => {
+            const createdDate = new Date(alert.created_at).toLocaleString();
+            const expiryDate = new Date(alert.expiry_time).toLocaleString();
+            const isExpired = new Date(alert.expiry_time) < new Date();
+            const severityIcon = {
+                'info': 'ℹ️',
+                'warning': '⚠️', 
+                'critical': '🚨'
+            }[alert.severity] || 'ℹ️';
+            
+            return `
+                <div class="alert-item ${alert.severity} ${alert.is_read ? 'read' : 'unread'}">
+                    <div class="alert-header">
+                        <h4>${severityIcon} ${alert.title}</h4>
+                        <div class="alert-meta">
+                            <span class="alert-status ${isExpired ? 'expired' : 'active'}">
+                                ${isExpired ? '⏰ Expired' : '✅ Active'}
+                            </span>
+                            <span class="alert-status ${alert.is_read ? 'read' : 'unread'}">
+                                ${alert.is_read ? '✓ Read' : '● Unread'}
+                            </span>
+                            ${alert.is_snoozed ? '<span class="alert-status snoozed">😴 Snoozed</span>' : ''}
+                        </div>
+                    </div>
+                    <p>${alert.message}</p>
+                    <div class="alert-meta">
+                        <span>📅 Created: ${createdDate}</span>
+                        <span>⏰ Expires: ${expiryDate}</span>
+                        <span>🎯 Visibility: ${alert.visibility_type}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading alert history:', error);
+        document.getElementById('user-history-list').innerHTML = 
+            '<div class="alert critical"><p>Error loading alert history.</p></div>';
+    }
+}
+
+// Mark alert as read
+async function markAsRead(alertId) {
+    try {
+        const response = await fetch(`/api/alerts/${alertId}/mark_read/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        
+        if (response.ok) {
+            showNotification('Alert marked as read', 'success');
+            refreshAlerts();
+        } else {
+            throw new Error('Failed to mark as read');
+        }
+    } catch (error) {
+        showNotification('Error marking alert as read', 'critical');
+        console.error('Error:', error);
+    }
+}
+
+// Mark alert as unread
+async function markAsUnread(alertId) {
+    try {
+        const response = await fetch(`/api/alerts/${alertId}/mark_read/`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        
+        if (response.ok) {
+            showNotification('Alert marked as unread', 'info');
+            refreshAlerts();
+        } else {
+            throw new Error('Failed to mark as unread');
+        }
+    } catch (error) {
+        showNotification('Error marking alert as unread', 'critical');
+        console.error('Error:', error);
+    }
+}
+
+// Snooze alert for the day
+async function snoozeAlert(alertId) {
+    try {
+        const response = await fetch(`/api/alerts/${alertId}/snooze/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        
+        if (response.ok) {
+            showNotification('Alert snoozed until tomorrow', 'success');
+            refreshAlerts();
+        } else {
+            throw new Error('Failed to snooze alert');
+        }
+    } catch (error) {
+        showNotification('Error snoozing alert', 'critical');
+        console.error('Error:', error);
+    }
+}
+
+// Unsnooze alert
+async function unsnoozeAlert(alertId) {
+    try {
+        const response = await fetch(`/api/alerts/${alertId}/snooze/`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        
+        if (response.ok) {
+            showNotification('Alert unsnoozed', 'info');
+            refreshAlerts();
+        } else {
+            throw new Error('Failed to unsnooze alert');
+        }
+    } catch (error) {
+        showNotification('Error unsnoozing alert', 'critical');
+        console.error('Error:', error);
+    }
+}
+
+// Refresh all alert data
+function refreshAlerts() {
+    loadUserOverview();
+    loadActiveAlerts();
+    if (document.getElementById('alert-history').style.display !== 'none') {
+        loadAlertHistory();
+    }
+}
+
+// Check for new alerts every 30 seconds
+function startAlertPolling() {
+    alertCheckInterval = setInterval(() => {
+        loadUserOverview();
+        loadActiveAlerts();
+    }, 30000); // 30 seconds
+}
+
+// Stop alert polling
+function stopAlertPolling() {
+    if (alertCheckInterval) {
+        clearInterval(alertCheckInterval);
+    }
+}
+
+// Initialize user dashboard
+document.addEventListener('DOMContentLoaded', () => {
+    loadUserOverview();
+    loadActiveAlerts();
+    startAlertPolling();
+    
+    // Stop polling when page is hidden
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopAlertPolling();
+        } else {
+            startAlertPolling();
+        }
+    });
+});
+
+// Clean up on page unload
+window.addEventListener('beforeunload', () => {
+    stopAlertPolling();
+});
+</script>
+{% endblock %}
